@@ -13,7 +13,9 @@
  */
 package org.openmrs.module.databasebackup.web.controller;
 
-import java.text.SimpleDateFormat;
+import org.openmrs.api.context.Context;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.Map;
@@ -33,17 +35,12 @@ import org.springframework.web.servlet.mvc.SimpleFormController;
  * This controller backs the /web/module/backupForm.jsp page. This controller is tied to that jsp
  * page in the /metadata/moduleApplicationContext.xml file
  *
- * Author: Mathias Lin <mathias.lin@metahealthcare.com>
+ * Author: Akor Uji <auji@ihvnigeria.org>
  */
 public class BackupFormController extends SimpleFormController {
 	
 	/** Logger for this class and subclasses */
 	protected final Log log = LogFactory.getLog(getClass());
-	
-	//	private Properties props;
-	//	private String filename;
-	//	private String folder;
-	//	private UserContext ctx;
 
 	// holds progress information of current dump thread
 	private static Map<String,String> progressInfo = new HashMap<String,String>();
@@ -68,34 +65,44 @@ public class BackupFormController extends SimpleFormController {
 	@Override
 	protected ModelAndView onSubmit(HttpServletRequest request, HttpServletResponse response, Object object,
 	                                BindException exceptions) throws Exception {
+	    
+	    String message;
+	    String fileId = null;
+
+	    // Retrieve the facility_datim_code from the global property
+	    String facilityDatimCode = Context.getAdministrationService().getGlobalProperty("facility_datim_code");
+
+	    // Create the filename with the facility_datim_code and timestamp
+	    fileId = facilityDatimCode + "_"
+	            + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss")) + ".sql";    
+
+	    String folder = DatabaseBackupTask.getAbsoluteBackupFolderPath();
+
+	    // If the user clicked the backup execution button
+	    if ("backup".equals(request.getParameter("act"))) {
+	        new DatabaseBackupTask().handleBackup(facilityDatimCode, fileId, true, BackupFormController.class, null, null);
+	        
+	        // Generate the download URL for the backup file
+	        String downloadUrl = "/module/databasebackup/download.form?fileId=" + fileId;
 		
-		String message;
-
-		// create file name with timestamp
-		String filename = "openmrs.backup."
-				+ new SimpleDateFormat("yyyy-MM-dd-HHmmss").format(Calendar.getInstance().getTime()) + ".sql";
-
-		String folder = DatabaseBackupTask.getAbsoluteBackupFolderPath();
-
-		// if user clicked the backup execution button...
-		if ("backup".equals(request.getParameter("act"))) {
-			new DatabaseBackupTask().handleBackup(filename, true, BackupFormController.class, null, null);
-			message = "<strong>Database is now being exported to file: " + folder + filename + ".zip"
-					+ ".</strong><br/>This might take a few minutes, please be patient. You will be notified upon completion.";
-		} else {
-			message = "<strong>Could not find or create the path to the backup folder: " + folder + ".</strong><br/>Please check or ask your system administrator for help.";
-		}
 		
-		ModelAndView mv = new ModelAndView(getFormView());
-		mv.addObject("fileId", filename);
-		mv.addObject("msg", message);
-		
-		return mv;
+		// Remove .sql extension before appending .zip
+		String baseFileId = fileId.replace(".sql", "");	
+	        message = "<strong>Database is now being exported to file: " + folder + baseFileId + ".zip"
+		   + ".</strong><br/>This might take a few minutes, please be patient. You will be notified upon completion.";
+	    } else {
+	        message = "<strong>Could not find or create the path to the backup folder: " + folder + ".</strong><br/>Please check or ask your system administrator for help.";
+	    }
 
+	    ModelAndView mv = new ModelAndView(getFormView());
+	    mv.addObject("fileId", fileId);
+	    mv.addObject("msg", message);
+	    
+	    return mv;
 	}
 
 	public String getProgress(String filename) {
-		return BackupFormController.getProgressInfo().get(filename)==null?"":(String)BackupFormController.getProgressInfo().get(filename);
+	    return BackupFormController.getProgressInfo().get(filename)==null?"":(String)BackupFormController.getProgressInfo().get(filename);
 	}
 
 	/**
@@ -123,5 +130,4 @@ public class BackupFormController extends SimpleFormController {
 	public static void setProgressInfo(Map<String,String> progressInfo) {
 		BackupFormController.progressInfo = progressInfo;
 	}
-	
 }

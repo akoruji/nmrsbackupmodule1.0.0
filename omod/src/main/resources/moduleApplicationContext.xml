@@ -41,6 +41,6 @@
         <property name="formView"><value>/module/@MODULE_ID@/backupSettings</value></property>
         <property name="successView"><value>settings.form</value></property>
     </bean>
-	
+    <bean id="downloadBackupController" class="@MODULE_PACKAGE@.web.controller.DownloadBackupController"/>	
     <!-- /Controllers -->
 </beans>

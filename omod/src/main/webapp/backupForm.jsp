@@ -7,11 +7,30 @@
 <%@ include file="/WEB-INF/template/header.jsp"%>
 
 <script type="text/javascript">
-function showProgress() {  
-  var filename = '${fileId}';
-  BackupFormController.getProgress(filename, function(data) {	    
-    if (data!=null && data!='') document.getElementById("progressDisplay").innerHTML = data;
-  });
+window.onload = function() {
+    // Ensure links are hidden when the page loads
+    document.getElementById("runBackupLink").style.display = "none"; 
+    document.getElementById("downloadLink").style.display = "none";
+    checkBackupCompletion();
+};
+
+function checkBackupCompletion() {
+    var filename = '${fileId}';
+    
+    BackupFormController.getProgress(filename, function(data) {
+        console.log("Backup progress:", data);
+        if (data) {
+            document.getElementById("progressDisplay").innerHTML = data; // Update progress display
+
+            // If progress contains "backup complete", show the links
+            if (data.toLowerCase().includes("backup complete")) {
+                document.getElementById("downloadLink").style.display = "block"; // Show download link
+                document.getElementById("runBackupLink").style.display = "block"; // Show "Run another database backup"
+                return; // Stop checking after completion
+            }
+        }
+        setTimeout(checkBackupCompletion, 2000); // Retry every 2 seconds
+    });
 }
 </script>
 
@@ -32,31 +51,32 @@ function showProgress() {
 <h2><spring:message code="databasebackup.link.backup" /></h2>
 
 <c:if test="${not empty msg}">
-    Progress:<div id="progressDisplay">&nbsp;</div>
+    Progress: <span id="progressDisplay">Starting...</span>
     <br/><br/>
-    <a href="backup.form">Run another database backup</a>
+
+    <c:if test="${not empty fileId}">
+        <div id="downloadLink" style="display:none;">
+            <a href="${pageContext.request.contextPath}/module/databasebackup/download.form?fileId=${fileId}">
+                Download latest backup
+            </a>
+        </div>
+    </c:if>
     
-    <script>
-    document.getElementById("progressDisplay").innerHTML = "Starting...";    
-    // window.setInterval("BackupFormController.getProgress(showProgress)",1*1000);
-    window.setInterval("showProgress()",1*1500);
-    
-    </script>    
+    <br/>
+    <a id="runBackupLink" href="backup.form" style="display: none;">Run another database backup</a>
 </c:if>
 
 <c:if test="${empty msg}">
+    <openmrs:globalProperty var="backupTablesIncluded" key="databasebackup.tablesIncluded" defaultValue="*"/>
+    <openmrs:globalProperty var="backupTablesExcluded" key="databasebackup.tablesExcluded" defaultValue="*"/>
+    Included tables: ${backupTablesIncluded}<br/>
+    Excluded tables: ${backupTablesExcluded}<br/>
+    <br/>
 
-<openmrs:globalProperty var="backupTablesIncluded" key="databasebackup.tablesIncluded" defaultValue="*"/>
-<openmrs:globalProperty var="backupTablesExcluded" key="databasebackup.tablesExcluded" defaultValue="*"/>
-Included tables: ${backupTablesIncluded}<br/>
-Excluded tables: ${backupTablesExcluded}<br/>
-<br/>
- 
-<form method="post">
-    <input type="hidden" id="act" name="act" value="backup">
-    <input type="submit" value="Execute database backup now">
-</form>
-
+    <form method="post">
+        <input type="hidden" id="act" name="act" value="backup">
+        <input type="submit" value="Execute database backup now">
+    </form>
 </c:if>
 
 <%@ include file="/WEB-INF/template/footer.jsp"%>

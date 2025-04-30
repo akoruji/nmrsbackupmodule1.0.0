@@ -5,12 +5,11 @@
 	
 	<!-- Base Module Properties -->
 	<id>databasebackup</id>
-	<name>Database Backup Module</name>
+	<name>NMRS Database Backup Module</name>
 	<version>@MODULE_VERSION@</version>
 	<package>org.openmrs.module.@MODULE_ID@</package>
-	<author>Mathias Lin</author>
-	<description>
-            Backup database through the OpenMRS administration interface.
+	<author>Akor Uji</author>
+	<description> To backup NMRS database including entire tables, functions and views and properly rename and compress the file according to required format through the OpenMRS administration interface.
 	</description>
 
 	<activator>@MODULE_PACKAGE@.DatabaseBackupActivator</activator>

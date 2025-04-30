@@ -4,17 +4,17 @@
 
 	<groupId>org.openmrs.module</groupId>
 	<artifactId>databasebackup</artifactId>
-	<version>1.4.0-SNAPSHOT</version>
+	<version>1.0.0-SNAPSHOT</version>
 	<packaging>pom</packaging>
-	<name>Database Backup Module</name>
+	<name>NMRS Database Backup Module</name>
 	<description>Parent project for Database Backup Module</description>
 
 	<url>http://openmrs.org</url>
 
 	<scm>
-		<connection>scm:git:https://github.com/openmrs/openmrs-module-databasebackup/</connection>
-		<developerConnection>scm:git:https://github.com/openmrs/openmrs-module-databasebackup/</developerConnection>
-		<url>https://github.com/openmrs/openmrs-module-databasebackup/</url>
+		<connection>scm:git:https://github.com/akoruji/nmrs-database-backup-module/</connection>
+		<developerConnection>scm:git:https://github.com/akoruji/nmrs-database-backup-module/</developerConnection>
+		<url>https://github.com/akoruji/nmrs-database-backup-module/</url>
 	  <tag>HEAD</tag>
   </scm>
 
@@ -100,8 +100,8 @@
 					<groupId>org.apache.maven.plugins</groupId>
 					<artifactId>maven-compiler-plugin</artifactId>
 					<configuration>
-						<target>1.6</target>
-						<source>1.6</source>
+						<target>1.8</target>
+						<source>1.8</source>
 					</configuration>
 				</plugin>
 				<plugin>

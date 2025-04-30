@@ -24,7 +24,7 @@ import org.openmrs.module.web.extension.AdministrationSectionExt;
  * "backup.title" heading. This extension is enabled by defining (uncommenting) it in the
  * /metadata/config.xml file.
  *
- * Author: Mathias Lin <mathias.lin@metahealthcare.com>* 
+ * Author: Akor Uji <auji@ihvnigeria.org>*
  */
 public class AdminList extends AdministrationSectionExt {
 	

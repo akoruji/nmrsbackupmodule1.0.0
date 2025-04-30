@@ -26,7 +26,7 @@ import org.springframework.web.servlet.view.RedirectView;
  * This controller backs the /web/module/backupForm.jsp page. This controller is tied to that jsp
  * page in the /metadata/moduleApplicationContext.xml file
  *
- * Author: Mathias Lin <mathias.lin@metahealthcare.com>
+ * Author: Akor Uji <auji@ihvnigeria.org>
  */
 public class BackupSettingsController extends AbstractController {
 	

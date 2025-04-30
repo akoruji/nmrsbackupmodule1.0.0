@@ -1,23 +1,11 @@
-/**
- * The contents of this file are subject to the OpenMRS Public License
- * Version 1.0 (the "License"); you may not use this file except in
- * compliance with the License. You may obtain a copy of the License at
- * http://license.openmrs.org
- *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See the
- * License for the specific language governing rights and limitations
- * under the License.
- *
- * Copyright (C) OpenMRS, LLC.  All Rights Reserved.
- */
 package org.openmrs.module.databasebackup;
 
 import java.io.File;
-import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Map;
 import java.util.Properties;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 import org.openmrs.api.context.Context;
 import org.openmrs.api.context.UserContext;
@@ -27,199 +15,154 @@ import org.openmrs.notification.Alert;
 import org.openmrs.scheduler.tasks.AbstractTask;
 import org.openmrs.util.OpenmrsUtil;
 
-
 public class DatabaseBackupTask extends AbstractTask {
-    	
-	private Properties props;
-	private String filename;
-	private String folder;
-	private UserContext ctx;
+
+    private Properties props;
+    private String folder;
+    private UserContext ctx;
 
     public void execute() {
         Context.openSession();
-        
-        // create file name with timestamp
-        filename = "openmrs.backup."
-                + new SimpleDateFormat("yyyy-MM-dd-HHmmss").format(Calendar.getInstance().getTime()) + ".sql";
 
-        // do backup without process notification (no controller class passed)
-        handleBackup(filename, false, null, taskDefinition.getProperty("tablesExcluded"), taskDefinition.getProperty("tablesIncluded"));
+        // Retrieve the facility_datim_code from the global property table
+        String facilityDatimCode = (String) Context.getAdministrationService().getGlobalProperty("facility_datim_code");
+
+        // Generate the filename with facilityDatimCode and timestamp
+        String filename = facilityDatimCode + "_"
+                + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss")) + ".sql";
+
+        // Perform backup
+        handleBackup(facilityDatimCode, filename, false, null, taskDefinition.getProperty("tablesExcluded"), taskDefinition.getProperty("tablesIncluded"));
+
         Context.closeSession();
     }
 
+    public void handleBackup(String facilityDatimCode, String filename, final boolean showProgress, final Class showProgressToClass, String overridenTablesExcluded, String overridenTablesIncluded) {
+        System.out.println("===== handleBackup(" + filename + "," + showProgress + "," + showProgressToClass + ") =====");
 
-    public void handleBackup(final String filename, final boolean showProgress, final Class showProgressToClass, String overridenTablesExcluded, String overridenTablesIncluded) {
-
-        System.out.println("=========================== handleBackup( " + filename + "," + showProgress + "," + showProgressToClass + "===================");
-
-        // set jdbc connection properties
+        // Set JDBC connection properties
         props = new Properties();
         props.setProperty("driver.class", "com.mysql.jdbc.Driver");
         props.setProperty("driver.url", Context.getRuntimeProperties().getProperty("connection.url"));
         props.setProperty("user", Context.getRuntimeProperties().getProperty("connection.username"));
         props.setProperty("password", Context.getRuntimeProperties().getProperty("connection.password"));
 
-        // tables to be in/exluded are also passed as properties to the db dump class
-        String tablesIncluded = (String) Context.getAdministrationService().getGlobalProperty("databasebackup.tablesIncluded", "all");
-        String tablesExcluded = (String) Context.getAdministrationService().getGlobalProperty("databasebackup.tablesExcluded", "none");
-        if (overridenTablesExcluded!=null && !"".equals(overridenTablesExcluded)) {
-            props.setProperty("tables.excluded", overridenTablesExcluded);
-        } else {
-            props.setProperty("tables.excluded", tablesExcluded==null?"":tablesExcluded);
-        }
+        // Get table inclusion/exclusion properties
+        String tablesIncluded = Context.getAdministrationService().getGlobalProperty("databasebackup.tablesIncluded", "all");
+        String tablesExcluded = Context.getAdministrationService().getGlobalProperty("databasebackup.tablesExcluded", "none");
 
-        if (overridenTablesExcluded!=null && !"".equals(overridenTablesIncluded)) {
-            props.setProperty("tables.included", overridenTablesIncluded);
-        } else {
-            props.setProperty("tables.included", tablesIncluded==null?"":tablesIncluded);
-        }
+        props.setProperty("tables.excluded", (overridenTablesExcluded != null && !overridenTablesExcluded.isEmpty()) ? overridenTablesExcluded : tablesExcluded);
+        props.setProperty("tables.included", (overridenTablesIncluded != null && !overridenTablesIncluded.isEmpty()) ? overridenTablesIncluded : tablesIncluded);
 
-        // read backup folder path from config and make it absolute
+        // Get backup folder path
         folder = getAbsoluteBackupFolderPath();
-
-        // check if backup path exists (sub folder by sub folder), otherwise create
         boolean success = checkFolderPath(folder);
 
-        /*String[] folderPath = folder.split( "\\" + System.getProperty("file.separator") );
-        String s = folderPath[0];
-        File f;
-        boolean success = true;
-        for (int i=1;i<=folderPath.length-1&&success;i++) {
-            if (!"".equals(folderPath[i]))
-                s += System.getProperty("file.separator") + folderPath[i];
-            f = new File(s);
-
-            System.out.println("check exit folder: " + s + ", " + f.exists());
-
-            if ( !f.exists()) {
-                success = f.mkdir();
-            }
-            System.out.println("create folder: " + s + ", " + success);
-        }
-        if (!folder.endsWith("\\" + System.getProperty("file.separator")))
-            folder += System.getProperty("file.separator");*/
-
-
-        // if no problems occured with creating or finding the backup folder...
         if (success) {
+            // Ensure filename is effectively final
+            final String filenameInThread = facilityDatimCode + "_"
+                    + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss")) + ".sql";
 
-            // create file name with timestamp
-//            filename = "openmrs.backup."
-//                    + new SimpleDateFormat("yyyy-MM-dd-HHmmss").format(Calendar.getInstance().getTime()) + ".sql";
-
-            props.setProperty("filename", filename);
+            props.setProperty("filename", filenameInThread);
             props.setProperty("folder", folder);
 
-            // make ctx available for the thread
+            // Store UserContext for the thread
             ctx = Context.getUserContext();
 
-            new Thread(new Runnable() {
+            new Thread(() -> {
+                try {
+                    UserContext ctxInThread = ctx;
 
-                public void run() {
-                    try {
-                        UserContext ctxInThread = ctx;
-                        String filenameInThread = filename;
-                        // DbDump.dumpDB(props, false, null);
+                    // Perform database backup
+                    DbDump.dumpDB(props, showProgress, showProgressToClass);
 
-                        DbDump.dumpDB(props, showProgress, showProgressToClass);
-
-                        // BackupFormController.getProgressInfo().put(filenameInThread, "Zipping file...");
-                        if (showProgress) {
-                            try {
-                                Map<String,String> info = (Map<String,String>)showProgressToClass.getMethod("getProgressInfo", new Class[]{}).invoke(showProgressToClass, new Object[]{});
-                                System.out.println("*** info "+info);
-                                info.put(filenameInThread, "Zipping file...");
-                                showProgressToClass.getMethod("setProgressInfo", new Class[]{Map.class}).invoke(showProgressToClass, info);
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        }
-
-                        // zip sql file
-                        Zip.zip(folder, filenameInThread);
-
-                        // remove sql file after zipping it
+                    if (showProgress) {
                         try {
-                            File f = new File(folder + filenameInThread);
-                            f.delete();
-                        } catch (SecurityException e) {
-                            // log.error("Could not delete raw sql file.",e);
+                            Map<String, String> info = (Map<String, String>) showProgressToClass.getMethod("getProgressInfo").invoke(showProgressToClass);
+                            info.put(filenameInThread, "Zipping file...");
+                            showProgressToClass.getMethod("setProgressInfo", Map.class).invoke(showProgressToClass, info);
+                        } catch (Exception e) {
+                            e.printStackTrace();
                         }
-
-                        // BackupFormController.getProgressInfo().put(filenameInThread, "Backup complete.");
-                        if (showProgress) {
-                            try {
-                                Map<String,String> info = (Map<String,String>)showProgressToClass.getMethod("getProgressInfo", null).invoke(showProgressToClass,new Object[]{});
-                                System.out.println("*** info "+info);
-                                info.put(filenameInThread, "Backup complete.");
-                                showProgressToClass.getMethod("setProgressInfo",new Class[]{Map.class}).invoke(showProgressToClass, info);
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        }
-                        
-                        Context.setUserContext(ctxInThread);
-                        Alert alert = new Alert("The backup file is ready at: " + folder + filenameInThread + ".zip",
-                            Context.getUserContext().getAuthenticatedUser());
-                        Context.getAlertService().saveAlert(alert);
-
                     }
-                    catch (Exception e) {
-                        System.err.println("Unable to backup database: " + e);
+
+                    // Zip the SQL file
+                    Zip.zip(folder, filenameInThread);
+
+                    // Remove raw SQL file
+                    try {
+                        File file = new File(folder + filenameInThread);
+                        file.delete();
+                    } catch (SecurityException e) {
                         e.printStackTrace();
-                        // log.error("Unable to backup database: ", e);
                     }
+
+                    if (showProgress) {
+                        try {
+                            Map<String, String> info = (Map<String, String>) showProgressToClass.getMethod("getProgressInfo").invoke(showProgressToClass);
+                            info.put(filenameInThread, "Backup complete.");
+                            showProgressToClass.getMethod("setProgressInfo", Map.class).invoke(showProgressToClass, info);
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                    }
+
+                    // Send alert notification
+                    Context.setUserContext(ctxInThread);
+		    String baseFilename = filename.replace(".sql", ""); // Remove .sql before adding .zip
+
+		    Alert alert = new Alert("The backup file is ready at: " + folder + baseFilename + ".zip",
+                    Context.getUserContext().getAuthenticatedUser());
+                    Context.getAlertService().saveAlert(alert);
+
+                } catch (Exception e) {
+                    System.err.println("Unable to backup database: " + e);
+                    e.printStackTrace();
                 }
             }).start();
         }
     }
 
+    /**
+     * Get absolute backup folder path.
+     */
+    public static String getAbsoluteBackupFolderPath() {
+        String folder;
+        String appDataDir = OpenmrsUtil.getApplicationDataDirectory();
 
+        if (!appDataDir.endsWith(System.getProperty("file.separator"))) {
+            appDataDir += System.getProperty("file.separator");
+        }
 
+        folder = Context.getAdministrationService().getGlobalProperty("databasebackup.folderPath", "backup");
+        if (folder.startsWith("./")) folder = folder.substring(2);
+        if (!folder.startsWith("/") && folder.indexOf(":") == -1) folder = appDataDir + folder;
+        folder = folder.replaceAll("/", "\\" + System.getProperty("file.separator"));
 
+        if (!folder.endsWith(System.getProperty("file.separator"))) {
+            folder += System.getProperty("file.separator");
+        }
+        return folder;
+    }
 
-	/**
-	 *
-	 * Makes eventual relative path to absolute path, based on OpenMRS app
-	 * data dir and returns it.
-	 *
-	 * @return Absolute path to the backup folder
-	 */
-	public static String getAbsoluteBackupFolderPath() {
-		String folder;
-		String appDataDir = OpenmrsUtil.getApplicationDataDirectory();
-		if (!appDataDir.endsWith(System.getProperty("file.separator"))) 
-			appDataDir = appDataDir + System.getProperty("file.separator");
-	    folder = (String) Context.getAdministrationService().getGlobalProperty("databasebackup.folderPath", "backup");
-	    if (folder.startsWith("./")) folder = folder.substring(2);
-	    if (!folder.startsWith("/") && folder.indexOf(":")==-1) folder = appDataDir + folder;
-	    folder = folder.replaceAll( "/", "\\" + System.getProperty("file.separator"));
-		if (!folder.endsWith(System.getProperty("file.separator"))) 
-			folder = folder + System.getProperty("file.separator");	
-	    return folder;
-	}
-
+    /**
+     * Check if backup folder path exists, and create it if necessary.
+     */
     private static boolean checkFolderPath(String folder) {
-        // check if backup path exists (sub folder by sub folder), otherwise create
-        String[] folderPath = folder.split( "\\" + System.getProperty("file.separator") );
+        String[] folderPath = folder.split("\\" + System.getProperty("file.separator"));
         String s = folderPath[0];
         File f;
         boolean success = true;
-        for (int i=1;i<=folderPath.length-1&&success;i++) {
+
+        for (int i = 1; i <= folderPath.length - 1 && success; i++) {
             if (!"".equals(folderPath[i]))
                 s += System.getProperty("file.separator") + folderPath[i];
             f = new File(s);
 
-            System.out.println("check exit folder: " + s + ", " + f.exists());
-
-            if ( !f.exists()) {
+            if (!f.exists()) {
                 success = f.mkdir();
             }
-            System.out.println("create folder: " + s + ", " + success);
         }
-        if (!folder.endsWith("\\" + System.getProperty("file.separator")))
-            folder += System.getProperty("file.separator");
         return success;
     }
-
 }

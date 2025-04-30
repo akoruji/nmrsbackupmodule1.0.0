@@ -1,19 +1,8 @@
-/**
- * The contents of this file are subject to the OpenMRS Public License
- * Version 1.0 (the "License"); you may not use this file except in
- * compliance with the License. You may obtain a copy of the License at
- * http://license.openmrs.org
- *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See the
- * License for the specific language governing rights and limitations
- * under the License.
- *
- * Copyright (C) OpenMRS, LLC.  All Rights Reserved.
- */
 package org.openmrs.module.databasebackup.util;
 
+import java.io.BufferedWriter;
 import java.io.FileOutputStream;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.sql.*;
@@ -24,67 +13,61 @@ import java.util.regex.Pattern;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
-//import org.openmrs.module.databasebackup.web.controller.BackupFormController;
-
-/**
- * This class connects to a database and dumps all the tables and contents out to stdout in the form of
- * a set of SQL executable statements
- *
- * Author: Mathias Lin <mathias.lin@metahealthcare.com>
- */
 public class DbDump {
 
-	/** Logger for this class and subclasses */
-	protected final static Log log = LogFactory.getLog(DbDump.class);
-	
-	private static final String fileEncoding = "UTF8";
-	
-	private static final HashMap<String,String> sqlTokens;
-	private static Pattern sqlTokenPattern;
-	
-	static
-	{           
-	    //MySQL escape sequences: http://dev.mysql.com/doc/refman/5.1/en/string-syntax.html
-	    String[][] search_regex_replacement = new String[][]
-	    {
-	                //search string     search regex        sql replacement regex
-	            {   "\u0000"    ,       "\\x00"     ,       "\\\\0"     },
-	            {   "'"         ,       "'"         ,       "\\\\'"     },
-	            {   "\""        ,       "\""        ,       "\\\\\""    },
-	            {   "\b"        ,       "\\x08"     ,       "\\\\b"     },
-	            {   "\n"        ,       "\\n"       ,       "\\\\n"     },
-	            {   "\r"        ,       "\\r"       ,       "\\\\r"     },
-	            {   "\t"        ,       "\\t"       ,       "\\\\t"     },
-	            {   "\u001A"    ,       "\\x1A"     ,       "\\\\Z"     },
-	            {   "\\"        ,       "\\\\"      ,       "\\\\\\\\"  }
-	    };
+    protected final static Log log = LogFactory.getLog(DbDump.class);
+    
+    private static final String fileEncoding = "UTF8";
+    
+    private static final HashMap<String, String> sqlTokens;
+    private static Pattern sqlTokenPattern;
+    
+    static {
+        // Define MySQL escape sequences
+        String[][] search_regex_replacement = new String[][] {
+            { "\u0000", "\\x00", "\\\\0" },
+            { "'",       "'",      "\\\\'" },
+            { "\"",      "\"",     "\\\\\"" },
+            { "\b",      "\\x08",   "\\\\b" },
+            { "\n",      "\\n",     "\\\\n" },
+            { "\r",      "\\r",     "\\\\r" },
+            { "\t",      "\\t",     "\\\\t" },
+            { "\u001A",  "\\x1A",   "\\\\Z" },
+            { "\\",      "\\\\",    "\\\\\\\\" }
+        };
 
-	    sqlTokens = new HashMap<String,String>();
-	    String patternStr = "";
-	    for (String[] srr : search_regex_replacement)
-	    {
-	        sqlTokens.put(srr[0], srr[2]);
-	        patternStr += (patternStr.isEmpty() ? "" : "|") + srr[1];            
-	    }
-	    sqlTokenPattern = Pattern.compile('(' + patternStr + ')');
-	}
-	
-	private static String escape(String s)
-	{
-	    Matcher matcher = sqlTokenPattern.matcher(s);
-	    StringBuffer sb = new StringBuffer();
-	    while(matcher.find())
-	    {
-	        matcher.appendReplacement(sb, sqlTokens.get(matcher.group(1)));
-	    }
-	    matcher.appendTail(sb);
-	    return sb.toString();
-	}
-	
-    /** Dump the whole database to an SQL string */
+        sqlTokens = new HashMap<String, String>();
+        String patternStr = "";
+        for (String[] srr : search_regex_replacement) {
+            sqlTokens.put(srr[0], srr[2]);
+            patternStr += (patternStr.isEmpty() ? "" : "|") + srr[1];
+        }
+        sqlTokenPattern = Pattern.compile('(' + patternStr + ')');
+    }
+    
+    /**
+     * Escapes a given string for use in SQL.
+     */
+    private static String escape(String s) {
+        Matcher matcher = sqlTokenPattern.matcher(s);
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            matcher.appendReplacement(sb, sqlTokens.get(matcher.group(1)));
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
+    }
+    
+    /**
+     * Dumps the entire database including table structures, data, views, and stored routines.
+     *
+     * @param props Properties including "filename", "folder", "driver.class", "driver.url", etc.
+     * @param showProgress If true, progress updates can be shown.
+     * @param showProgressToClass A reference to a class for progress reporting (if needed).
+     */
     public static void dumpDB(Properties props, boolean showProgress, Class showProgressToClass) throws Exception {
-    	String filename = props.getProperty("filename");
-    	String folder= props.getProperty("folder");
+        String filename = props.getProperty("filename");
+        String folder = props.getProperty("folder");
         String driverClassName = props.getProperty("driver.class");
         String driverURL = props.getProperty("driver.url");
         DatabaseMetaData dbMetaData = null;
@@ -94,172 +77,214 @@ public class DbDump {
         dbConn = DriverManager.getConnection(driverURL, props);
         dbMetaData = dbConn.getMetaData();
         
-        FileOutputStream fos = new FileOutputStream(folder + filename);        
-        OutputStreamWriter result = new OutputStreamWriter(fos, fileEncoding);            
+        FileOutputStream fos = new FileOutputStream(folder + filename);
+        OutputStreamWriter result = new OutputStreamWriter(fos, fileEncoding);
         
-        String catalog = props.getProperty("catalog");
-        String schema = props.getProperty("schemaPattern");
+        // Write header information
+        result.write("/*\n" +
+                     " * DB jdbc url: " + driverURL + "\n" +
+                     " * Database product & version: " + dbMetaData.getDatabaseProductName() + " " + dbMetaData.getDatabaseProductVersion() + "\n" +
+                     " */\n");
+                     
+        result.write("SET FOREIGN_KEY_CHECKS=0;\n");
         
-        String tablesIncluded = props.getProperty("tables.included");
-        List<String> tablesIncludedVector = Arrays.asList(tablesIncluded.split(","));
-
-        String tablesExcluded = props.getProperty("tables.excluded");
-        List<String> tablesExcludedVector = Arrays.asList(tablesExcluded.split(","));
-
-        ResultSet rs = dbMetaData.getTables(catalog, schema, null, null);
-        int progressCnt = 0;
-
-        log.debug("tablesIncluded: " + tablesIncluded);
-        log.debug("tablesExcluded: " + tablesExcluded);
-
-        result.write( "/*\n" + 
-        		" * DB jdbc url: " + driverURL + "\n" +
-        		" * Database product & version: " + dbMetaData.getDatabaseProductName() + " " + dbMetaData.getDatabaseProductVersion() + "\n" +
-        		" */"
-        		);                                   
-        
-        result.write("\nSET FOREIGN_KEY_CHECKS=0;\n");
-        
+        // --- Dump Table Structures and Data ---
         List<String> tableVector = new Vector<String>();
-        int progressTotal = 0;
-        while(rs.next()) {
+        ResultSet rs = dbMetaData.getTables(null, null, null, new String[] { "TABLE" });
+        while (rs.next()) {
             String tableName = rs.getString("TABLE_NAME");
-            if (
-                    ( tablesIncluded.contains("all")&&!tablesExcludedVector.contains(tableName)||tablesIncluded.contains(tableName) )
-                    || ( tablesExcludedVector.contains("none")&&!tablesIncludedVector.contains("none") )
-                    ) {
-                progressTotal++;
-                tableVector.add(tableName);
-            }                
+            // (Optionally add filtering logic based on backup settings here)
+            tableVector.add(tableName);
         }
         rs.beforeFirst();
-        
-        if (! rs.next()) {
-            log.error("Unable to find any tables matching: catalog="+catalog+" schema=" + schema + " tables=" + tableVector.toArray().toString());
-            rs.close();
-        } else {
-            do {
-                String tableName = rs.getString("TABLE_NAME");                    
-                String tableType = rs.getString("TABLE_TYPE");
-                
-                if (tableVector.contains(tableName)) {
-
-                	progressCnt++;
-                	//BackupFormController.getProgressInfo().put(filename, "Backing up table " + progressCnt + " of " + progressTotal + " (" + tableName + ")...");
-
-                    if (showProgress) {
-                        Map<String,String> info = (Map<String,String>)showProgressToClass.getMethod("getProgressInfo", null).invoke(showProgressToClass);
-                        info.put(filename, "Backing up table " + progressCnt + " of " + progressTotal + " (" + tableName + ")...");
-                        showProgressToClass.getMethod("setProgressInfo", new Class[]{Map.class}).invoke(showProgressToClass, info);
-                    }
-
-                    if ("TABLE".equalsIgnoreCase(tableType)) {
-
-                    	result.write( "\n\n-- Structure for table `" + tableName + "`\n" );
-                    	result.write( "DROP TABLE IF EXISTS `"+tableName+"`;\n" );
-                    	
-                    	PreparedStatement tableStmt = dbConn.prepareStatement("SHOW CREATE TABLE "+ tableName +";");
-                    	ResultSet tablesRs = tableStmt.executeQuery();
-                    	while (tablesRs.next()) {
-                    		result.write(tablesRs.getString("Create Table") + ";\n\n");	
-                    	}
-                    	tablesRs.close();
-                    	tableStmt.close();                    	
-
-                        dumpTable(dbConn, result, tableName);
-                        System.gc();
-                    }
+        while (rs.next()) {
+            String tableName = rs.getString("TABLE_NAME");
+            if (tableVector.contains(tableName)) {
+                result.write("\n\n-- Structure for table `" + tableName + "`\n");
+                result.write("DROP TABLE IF EXISTS `" + tableName + "`;\n");
+                PreparedStatement tableStmt = dbConn.prepareStatement("SHOW CREATE TABLE " + tableName);
+                ResultSet tablesRs = tableStmt.executeQuery();
+                while (tablesRs.next()) {
+                    result.write(tablesRs.getString("Create Table") + ";\n\n");
                 }
-            } while (rs.next());
-            rs.close();
+                tablesRs.close();
+                tableStmt.close();
+                
+                // Dump table data
+                dumpTable(dbConn, result, tableName);
+            }
+        }
+        rs.close();
+        
+        // --- Dump Views ---
+        try {
+            dumpViews(dbConn, result);
+        } catch (Exception e) {
+            log.error("Error dumping views: " + e);
         }
         
-        result.write("\nSET FOREIGN_KEY_CHECKS=1;\n");
+        // --- Dump Stored Procedures and Functions ---
+        try {
+            dumpRoutines(dbConn, result);
+        } catch (Exception e) {
+            log.error("Error dumping routines: " + e);
+        }
         
+        // Finalize the backup file
+        result.write("\nSET FOREIGN_KEY_CHECKS=1;\n");
         result.flush();
         result.close();
-        
-        dbConn.close();       
+        dbConn.close();
     }
+    
+    /**
+     * Dumps data for a specific table.
+     *
+     * @param dbConn The active database connection.
+     * @param result The writer to the backup file.
+     * @param tableName The name of the table to dump.
+     */
+    // Dump table data
+private static void dumpTable(Connection dbConn, OutputStreamWriter result, String tableName) {
+    try {
+        int max = 10000;
+        Statement s = dbConn.createStatement();
+        ResultSet r = s.executeQuery("SELECT COUNT(*) AS rowcount FROM " + tableName);
+        r.next();
+        int count = r.getInt("rowcount");
+        r.close();
 
-    /** dump this particular table to the string buffer */
-    private static void dumpTable(Connection dbConn, OutputStreamWriter result, String tableName) {
-        try {
-            // Rows per insert
-            int max = 10000;
-            // Get total number of rows for table
-            Statement s = dbConn.createStatement();
-            ResultSet r = s.executeQuery("SELECT COUNT(*) AS rowcount FROM " + tableName);
-            r.next();
-            int count = r.getInt("rowcount");
-            r.close();
+        int offset = 0;
+        result.write("\n\n-- Data for table `" + tableName + "`\n");
 
-            // Variables for dividing rows
+        while (offset < count) {
+            PreparedStatement stmt = dbConn.prepareStatement("SELECT * FROM " + tableName + " LIMIT " + offset + ", " + max);
+            ResultSet rs = stmt.executeQuery();
+            ResultSetMetaData metaData = rs.getMetaData();
+            int columnCount = metaData.getColumnCount();
 
-            int startIndex = 0;
-            boolean notProcessed = true;
-            int offset = 0;
-
-            result.write("\n\n-- Data for table '" + tableName + "'\n");
-
-            while (notProcessed) {
-
-                PreparedStatement stmt = dbConn.prepareStatement("SELECT * FROM " + tableName + " LIMIT " + String.valueOf(offset) + ", " + String.valueOf(max) + ";");
-                ResultSet rs = stmt.executeQuery();
-                ResultSetMetaData metaData = rs.getMetaData();
-                int columnCount = metaData.getColumnCount();
-
-                String dataHeaders = "(" + metaData.getColumnName(1);
-                for (int i = 2; i <= columnCount; i++) {
-                    dataHeaders += "," + metaData.getColumnName(i);
-                }
-                dataHeaders += ")";
-
-                // Check that row exist before insert statement can be created
-                if(rs.isBeforeFirst()) {
-                    result.write("INSERT INTO " + tableName + " " + dataHeaders + " VALUES ");
-                }
-                // data inserts
-                while (rs.next()) {
-
-                    result.write("(");
-                    for (int i = 0; i < columnCount; i++) {
-                        if (i > 0) {
-                            result.write(", ");
-                        }
-                        Object value = rs.getObject(i + 1);
-                        if (value == null) {
-                            result.write("NULL");
-                        } else {
-                            String outputValue = value.toString();
-                            if (value instanceof Boolean) {
-                                outputValue = (((Boolean) value) ? "1" : "0");
-                            }
-                            outputValue = escape(outputValue);
-                            result.write("'" + outputValue + "'");
-                        }
-                    }
-                    if (rs.isLast()) {
-                        result.write(");\n");
-                    } else {
-                        result.write("),");
-                    }
-                }
-                rs.close();
-                stmt.close();
-
-                if (offset >= count || count <= max) {
-                    notProcessed = false;
-                } else {
-                    startIndex = startIndex + 1;
-                }
-                offset = (startIndex * max);
+            // Build column header string
+            StringBuilder dataHeaders = new StringBuilder("(" + metaData.getColumnName(1));
+            for (int i = 2; i <= columnCount; i++) {
+                dataHeaders.append(", ").append(metaData.getColumnName(i));
             }
-            // Construct columns
-        } catch (SQLException e) {
-            log.error("Unable to dump table " + tableName + ".  " + e);
-        } catch (IOException e) {
-            log.error("Unable to dump table " + tableName + ".  " + e);
+            dataHeaders.append(")");
+
+            boolean firstRow = true;
+            while (rs.next()) {
+                if (firstRow) {
+                    result.write("INSERT INTO `" + tableName + "` " + dataHeaders.toString() + " VALUES ");
+                    firstRow = false;
+                } else {
+                    result.write(", ");
+                }
+
+                result.write("(");
+                for (int i = 1; i <= columnCount; i++) {
+                    if (i > 1) {
+                        result.write(", ");
+                    }
+                    Object value = rs.getObject(i);
+                    int columnType = metaData.getColumnType(i);  // Get column data type
+
+                    if (value == null) {
+                        result.write("NULL");
+                    } else if (columnType == Types.BIT || columnType == Types.TINYINT) {
+                        // Ensure boolean and tinyint values are inserted correctly
+                        result.write(value.toString().equals("true") ? "1" : "0");
+                    } else {
+                        String outputValue = value.toString();
+                        outputValue = escape(outputValue);  // Escape special characters
+                        result.write("'" + outputValue + "'");
+                    }
+                }
+                result.write(")");
+            }
+            if (!firstRow) {
+                result.write(";\n");
+            }
+            rs.close();
+            stmt.close();
+            offset += max;
         }
+    } catch (SQLException | IOException e) {
+        log.error("Unable to dump table " + tableName + ". " + e);
+    }
+}
+    
+    /**
+     * Dumps view definitions from the database.
+     *
+     * @param dbConn The active database connection.
+     * @param result The writer to the backup file.
+     * @throws SQLException If a SQL error occurs.
+     * @throws IOException  If an I/O error occurs.
+     */
+    private static void dumpViews(Connection dbConn, OutputStreamWriter result) throws SQLException, IOException {
+        // Use DatabaseMetaData to retrieve views
+        DatabaseMetaData dbMetaData = dbConn.getMetaData();
+        ResultSet rsViews = dbMetaData.getTables(null, null, null, new String[] { "VIEW" });
+        while (rsViews.next()) {
+            String viewName = rsViews.getString("TABLE_NAME");
+            result.write("\n\n-- Definition for view `" + viewName + "`\n");
+            PreparedStatement ps = dbConn.prepareStatement("SHOW CREATE VIEW " + viewName);
+            ResultSet rsCreateView = ps.executeQuery();
+            if (rsCreateView.next()) {
+                String createView = rsCreateView.getString("Create View");
+                result.write(createView + ";\n");
+            }
+            rsCreateView.close();
+            ps.close();
+        }
+        rsViews.close();
+    }
+    
+    /**
+     * Dumps stored procedures and functions from the database.
+     *
+     * @param dbConn The active database connection.
+     * @param result The writer to the backup file.
+     * @throws SQLException If a SQL error occurs.
+     * @throws IOException  If an I/O error occurs.
+     */
+    private static void dumpRoutines(Connection dbConn, OutputStreamWriter result) throws SQLException, IOException {
+        Statement stmt = dbConn.createStatement();
+
+        // Dump stored procedures
+        ResultSet procedures = stmt.executeQuery("SHOW PROCEDURE STATUS WHERE Db = DATABASE()");
+        while (procedures.next()) {
+            String procName = procedures.getString("Name");
+            PreparedStatement ps = dbConn.prepareStatement("SHOW CREATE PROCEDURE " + procName);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) {
+                String createProcedure = rs.getString("Create Procedure");
+                result.write("\n\n-- Stored Procedure: " + procName + "\n");
+                result.write("DELIMITER $$\n");
+                result.write(createProcedure + " $$\n");
+                result.write("DELIMITER ;\n");
+            }
+            rs.close();
+            ps.close();
+        }
+        procedures.close();
+
+        // Dump stored functions
+        ResultSet functions = stmt.executeQuery("SHOW FUNCTION STATUS WHERE Db = DATABASE()");
+        while (functions.next()) {
+            String funcName = functions.getString("Name");
+            PreparedStatement ps = dbConn.prepareStatement("SHOW CREATE FUNCTION " + funcName);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) {
+                String createFunction = rs.getString("Create Function");
+                result.write("\n\n-- Stored Function: " + funcName + "\n");
+                result.write("DELIMITER $$\n");
+                result.write(createFunction + " $$\n");
+                result.write("DELIMITER ;\n");
+            }
+            rs.close();
+            ps.close();
+        }
+        functions.close();
+        stmt.close();
     }
 }

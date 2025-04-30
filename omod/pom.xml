@@ -3,12 +3,12 @@
 	<parent>
 		<groupId>org.openmrs.module</groupId>
 		<artifactId>databasebackup</artifactId>
-		<version>1.4.0-SNAPSHOT</version>
+		<version>1.0.0-SNAPSHOT</version>
 	</parent>
 	<groupId>org.openmrs.module</groupId>
 	<artifactId>databasebackup-omod</artifactId>
 	<packaging>jar</packaging>
-	<name>Database Backup Module OMOD</name>
+	<name>NMRS Database Backup Module OMOD</name>
 	<description>OpenMRS module project for Database Backup Module</description>
 
 	<dependencies>
