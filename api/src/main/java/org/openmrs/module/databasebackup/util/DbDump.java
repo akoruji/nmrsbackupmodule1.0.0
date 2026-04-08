@@ -57,6 +57,26 @@ public class DbDump {
         matcher.appendTail(sb);
         return sb.toString();
     }
+
+    /**
+     * Helper to update the progress map on the provided class (static methods).
+     */
+    @SuppressWarnings("unchecked")
+    private static void updateProgress(boolean showProgress, Class showProgressToClass, String filename, String message) {
+        if (!showProgress || showProgressToClass == null || filename == null) return;
+        try {
+            Map<String, String> info = (Map<String, String>) showProgressToClass.getMethod("getProgressInfo").invoke(null);
+            if (info == null) {
+                info = new HashMap<String, String>();
+            }
+            info.put(filename, message);
+            showProgressToClass.getMethod("setProgressInfo", Map.class).invoke(null, info);
+            log.info("Updated progress for " + filename + ": " + message);
+        } catch (Exception e) {
+            // Log but don't fail the dump because progress update failed
+            log.error("Unable to update progress for " + filename, e);
+        }
+    }
     
     /**
      * Dumps the entire database including table structures, data, views, and stored routines.
@@ -73,68 +93,100 @@ public class DbDump {
         DatabaseMetaData dbMetaData = null;
         Connection dbConn = null;
 
-        Class.forName(driverClassName);
-        dbConn = DriverManager.getConnection(driverURL, props);
-        dbMetaData = dbConn.getMetaData();
-        
-        FileOutputStream fos = new FileOutputStream(folder + filename);
-        OutputStreamWriter result = new OutputStreamWriter(fos, fileEncoding);
-        
-        // Write header information
-        result.write("/*\n" +
-                     " * DB jdbc url: " + driverURL + "\n" +
-                     " * Database product & version: " + dbMetaData.getDatabaseProductName() + " " + dbMetaData.getDatabaseProductVersion() + "\n" +
-                     " */\n");
-                     
-        result.write("SET FOREIGN_KEY_CHECKS=0;\n");
-        
-        // --- Dump Table Structures and Data ---
-        List<String> tableVector = new Vector<String>();
-        ResultSet rs = dbMetaData.getTables(null, null, null, new String[] { "TABLE" });
-        while (rs.next()) {
-            String tableName = rs.getString("TABLE_NAME");
-            // (Optionally add filtering logic based on backup settings here)
-            tableVector.add(tableName);
-        }
-        rs.beforeFirst();
-        while (rs.next()) {
-            String tableName = rs.getString("TABLE_NAME");
-            if (tableVector.contains(tableName)) {
-                result.write("\n\n-- Structure for table `" + tableName + "`\n");
-                result.write("DROP TABLE IF EXISTS `" + tableName + "`;\n");
-                PreparedStatement tableStmt = dbConn.prepareStatement("SHOW CREATE TABLE " + tableName);
-                ResultSet tablesRs = tableStmt.executeQuery();
-                while (tablesRs.next()) {
-                    result.write(tablesRs.getString("Create Table") + ";\n\n");
-                }
-                tablesRs.close();
-                tableStmt.close();
-                
-                // Dump table data
-                dumpTable(dbConn, result, tableName);
+        // Update progress: starting
+        updateProgress(showProgress, showProgressToClass, filename, "Starting database dump...");
+
+        try {
+            Class.forName(driverClassName);
+            dbConn = DriverManager.getConnection(driverURL, props);
+            dbMetaData = dbConn.getMetaData();
+            
+            FileOutputStream fos = new FileOutputStream(folder + filename);
+            OutputStreamWriter result = new OutputStreamWriter(fos, fileEncoding);
+            
+            // Write header information
+            result.write("/*\n" +
+                         " * DB jdbc url: " + driverURL + "\n" +
+                         " * Database product & version: " + dbMetaData.getDatabaseProductName() + " " + dbMetaData.getDatabaseProductVersion() + "\n" +
+                         " */\n");
+                         
+            result.write("SET FOREIGN_KEY_CHECKS=0;\n");
+
+            // --- Gather Tables ---
+            updateProgress(showProgress, showProgressToClass, filename, "Gathering list of tables...");
+            List<String> tableVector = new Vector<String>();
+            ResultSet rs = dbMetaData.getTables(null, null, null, new String[] { "TABLE" });
+            while (rs.next()) {
+                String tableName = rs.getString("TABLE_NAME");
+                // (Optionally add filtering logic based on backup settings here)
+                tableVector.add(tableName);
             }
+
+            int tableCount = tableVector.size();
+            rs.beforeFirst();
+            int tableIndex = 0;
+            while (rs.next()) {
+                String tableName = rs.getString("TABLE_NAME");
+                if (tableVector.contains(tableName)) {
+                    tableIndex++;
+                    updateProgress(showProgress, showProgressToClass, filename,
+                            "Dumping table " + tableIndex + " of " + tableCount + ": " + tableName);
+
+                    result.write("\n\n-- Structure for table `" + tableName + "`\n");
+                    result.write("DROP TABLE IF EXISTS `" + tableName + "`;\n");
+                    PreparedStatement tableStmt = dbConn.prepareStatement("SHOW CREATE TABLE " + tableName);
+                    ResultSet tablesRs = tableStmt.executeQuery();
+                    while (tablesRs.next()) {
+                        result.write(tablesRs.getString("Create Table") + ";\n\n");
+                    }
+                    tablesRs.close();
+                    tableStmt.close();
+                    
+                    // Dump table data
+                    dumpTable(dbConn, result, tableName);
+
+                    updateProgress(showProgress, showProgressToClass, filename,
+                            "Finished table " + tableIndex + " of " + tableCount + ": " + tableName);
+                }
+            }
+            rs.close();
+            
+            // --- Dump Views ---
+            updateProgress(showProgress, showProgressToClass, filename, "Dumping views...");
+            try {
+                dumpViews(dbConn, result);
+            } catch (Exception e) {
+                log.error("Error dumping views: " + e);
+                updateProgress(showProgress, showProgressToClass, filename, "Error dumping views: " + e.getMessage());
+            }
+            updateProgress(showProgress, showProgressToClass, filename, "Finished dumping views.");
+
+            // --- Dump Stored Procedures and Functions ---
+            updateProgress(showProgress, showProgressToClass, filename, "Dumping stored routines (procedures & functions)...");
+            try {
+                dumpRoutines(dbConn, result);
+            } catch (Exception e) {
+                log.error("Error dumping routines: " + e);
+                updateProgress(showProgress, showProgressToClass, filename, "Error dumping routines: " + e.getMessage());
+            }
+            updateProgress(showProgress, showProgressToClass, filename, "Finished dumping stored routines.");
+
+            // Finalize the backup file
+            updateProgress(showProgress, showProgressToClass, filename, "Finalizing backup file...");
+            result.write("\nSET FOREIGN_KEY_CHECKS=1;\n");
+            result.flush();
+            result.close();
+            dbConn.close();
+
+            // Completed
+            updateProgress(showProgress, showProgressToClass, filename, "Backup complete.");
+        } catch (Exception ex) {
+            log.error("Exception during database dump", ex);
+            // Update progress map with failure
+            updateProgress(showProgress, showProgressToClass, filename, "Backup failed: " + ex.getMessage());
+            // rethrow so caller can still handle (and outer thread's catch will also set progress / alert)
+            throw ex;
         }
-        rs.close();
-        
-        // --- Dump Views ---
-        try {
-            dumpViews(dbConn, result);
-        } catch (Exception e) {
-            log.error("Error dumping views: " + e);
-        }
-        
-        // --- Dump Stored Procedures and Functions ---
-        try {
-            dumpRoutines(dbConn, result);
-        } catch (Exception e) {
-            log.error("Error dumping routines: " + e);
-        }
-        
-        // Finalize the backup file
-        result.write("\nSET FOREIGN_KEY_CHECKS=1;\n");
-        result.flush();
-        result.close();
-        dbConn.close();
     }
     
     /**
@@ -145,72 +197,72 @@ public class DbDump {
      * @param tableName The name of the table to dump.
      */
     // Dump table data
-private static void dumpTable(Connection dbConn, OutputStreamWriter result, String tableName) {
-    try {
-        int max = 10000;
-        Statement s = dbConn.createStatement();
-        ResultSet r = s.executeQuery("SELECT COUNT(*) AS rowcount FROM " + tableName);
-        r.next();
-        int count = r.getInt("rowcount");
-        r.close();
+ private static void dumpTable(Connection dbConn, OutputStreamWriter result, String tableName) {
+     try {
+         int max = 10000;
+         Statement s = dbConn.createStatement();
+         ResultSet r = s.executeQuery("SELECT COUNT(*) AS rowcount FROM " + tableName);
+         r.next();
+         int count = r.getInt("rowcount");
+         r.close();
 
-        int offset = 0;
-        result.write("\n\n-- Data for table `" + tableName + "`\n");
+         int offset = 0;
+         result.write("\n\n-- Data for table `" + tableName + "`\n");
 
-        while (offset < count) {
-            PreparedStatement stmt = dbConn.prepareStatement("SELECT * FROM " + tableName + " LIMIT " + offset + ", " + max);
-            ResultSet rs = stmt.executeQuery();
-            ResultSetMetaData metaData = rs.getMetaData();
-            int columnCount = metaData.getColumnCount();
+         while (offset < count) {
+             PreparedStatement stmt = dbConn.prepareStatement("SELECT * FROM " + tableName + " LIMIT " + offset + ", " + max);
+             ResultSet rs = stmt.executeQuery();
+             ResultSetMetaData metaData = rs.getMetaData();
+             int columnCount = metaData.getColumnCount();
 
-            // Build column header string
-            StringBuilder dataHeaders = new StringBuilder("(" + metaData.getColumnName(1));
-            for (int i = 2; i <= columnCount; i++) {
-                dataHeaders.append(", ").append(metaData.getColumnName(i));
-            }
-            dataHeaders.append(")");
+             // Build column header string
+             StringBuilder dataHeaders = new StringBuilder("(" + metaData.getColumnName(1));
+             for (int i = 2; i <= columnCount; i++) {
+                 dataHeaders.append(", ").append(metaData.getColumnName(i));
+             }
+             dataHeaders.append(")");
 
-            boolean firstRow = true;
-            while (rs.next()) {
-                if (firstRow) {
-                    result.write("INSERT INTO `" + tableName + "` " + dataHeaders.toString() + " VALUES ");
-                    firstRow = false;
-                } else {
-                    result.write(", ");
-                }
+             boolean firstRow = true;
+             while (rs.next()) {
+                 if (firstRow) {
+                     result.write("INSERT INTO `" + tableName + "` " + dataHeaders.toString() + " VALUES ");
+                     firstRow = false;
+                 } else {
+                     result.write(", ");
+                 }
 
-                result.write("(");
-                for (int i = 1; i <= columnCount; i++) {
-                    if (i > 1) {
-                        result.write(", ");
-                    }
-                    Object value = rs.getObject(i);
-                    int columnType = metaData.getColumnType(i);  // Get column data type
+                 result.write("(");
+                 for (int i = 1; i <= columnCount; i++) {
+                     if (i > 1) {
+                         result.write(", ");
+                     }
+                     Object value = rs.getObject(i);
+                     int columnType = metaData.getColumnType(i);  // Get column data type
 
-                    if (value == null) {
-                        result.write("NULL");
-                    } else if (columnType == Types.BIT || columnType == Types.TINYINT) {
-                        // Ensure boolean and tinyint values are inserted correctly
-                        result.write(value.toString().equals("true") ? "1" : "0");
-                    } else {
-                        String outputValue = value.toString();
-                        outputValue = escape(outputValue);  // Escape special characters
-                        result.write("'" + outputValue + "'");
-                    }
-                }
-                result.write(")");
-            }
-            if (!firstRow) {
-                result.write(";\n");
-            }
-            rs.close();
-            stmt.close();
-            offset += max;
-        }
-    } catch (SQLException | IOException e) {
-        log.error("Unable to dump table " + tableName + ". " + e);
-    }
-}
+                     if (value == null) {
+                         result.write("NULL");
+                     } else if (columnType == Types.BIT || columnType == Types.TINYINT) {
+                         // Ensure boolean and tinyint values are inserted correctly
+                         result.write(value.toString().equals("true") ? "1" : "0");
+                     } else {
+                         String outputValue = value.toString();
+                         outputValue = escape(outputValue);  // Escape special characters
+                         result.write("'" + outputValue + "'");
+                     }
+                 }
+                 result.write(")");
+             }
+             if (!firstRow) {
+                 result.write(";\n");
+             }
+             rs.close();
+             stmt.close();
+             offset += max;
+         }
+     } catch (SQLException | IOException e) {
+         log.error("Unable to dump table " + tableName + ". " + e);
+     }
+ }
     
     /**
      * Dumps view definitions from the database.
