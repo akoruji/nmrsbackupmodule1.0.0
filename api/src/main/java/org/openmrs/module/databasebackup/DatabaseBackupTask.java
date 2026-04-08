@@ -59,11 +59,8 @@ public class DatabaseBackupTask extends AbstractTask {
         boolean success = checkFolderPath(folder);
 
         if (success) {
-            // Ensure filename is effectively final
-            final String filenameInThread = facilityDatimCode + "_"
-                    + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss")) + ".sql";
-
-            props.setProperty("filename", filenameInThread);
+            // Use the filename passed into handleBackup (do not re-generate)
+            props.setProperty("filename", filename);
             props.setProperty("folder", folder);
 
             // Store UserContext for the thread
@@ -76,32 +73,33 @@ public class DatabaseBackupTask extends AbstractTask {
                     // Perform database backup
                     DbDump.dumpDB(props, showProgress, showProgressToClass);
 
-                    if (showProgress) {
+                    if (showProgress && showProgressToClass != null) {
                         try {
-                            Map<String, String> info = (Map<String, String>) showProgressToClass.getMethod("getProgressInfo").invoke(showProgressToClass);
-                            info.put(filenameInThread, "Zipping file...");
-                            showProgressToClass.getMethod("setProgressInfo", Map.class).invoke(showProgressToClass, info);
+                            // Invoke static getProgressInfo method on the showProgressToClass
+                            Map<String, String> info = (Map<String, String>) showProgressToClass.getMethod("getProgressInfo").invoke(null);
+                            info.put(filename, "Zipping file...");
+                            showProgressToClass.getMethod("setProgressInfo", Map.class).invoke(null, info);
                         } catch (Exception e) {
                             e.printStackTrace();
                         }
                     }
 
                     // Zip the SQL file
-                    Zip.zip(folder, filenameInThread);
+                    Zip.zip(folder, filename);
 
                     // Remove raw SQL file
                     try {
-                        File file = new File(folder + filenameInThread);
+                        File file = new File(folder + filename);
                         file.delete();
                     } catch (SecurityException e) {
                         e.printStackTrace();
                     }
 
-                    if (showProgress) {
+                    if (showProgress && showProgressToClass != null) {
                         try {
-                            Map<String, String> info = (Map<String, String>) showProgressToClass.getMethod("getProgressInfo").invoke(showProgressToClass);
-                            info.put(filenameInThread, "Backup complete.");
-                            showProgressToClass.getMethod("setProgressInfo", Map.class).invoke(showProgressToClass, info);
+                            Map<String, String> info = (Map<String, String>) showProgressToClass.getMethod("getProgressInfo").invoke(null);
+                            info.put(filename, "Backup complete.");
+                            showProgressToClass.getMethod("setProgressInfo", Map.class).invoke(null, info);
                         } catch (Exception e) {
                             e.printStackTrace();
                         }
@@ -109,10 +107,10 @@ public class DatabaseBackupTask extends AbstractTask {
 
                     // Send alert notification
                     Context.setUserContext(ctxInThread);
-		    String baseFilename = filename.replace(".sql", ""); // Remove .sql before adding .zip
+                    String baseFilename = filename.replace(".sql", ""); // Remove .sql before adding .zip
 
-		    Alert alert = new Alert("The backup file is ready at: " + folder + baseFilename + ".zip",
-                    Context.getUserContext().getAuthenticatedUser());
+                    Alert alert = new Alert("The backup file is ready at: " + folder + baseFilename + ".zip",
+                            Context.getUserContext().getAuthenticatedUser());
                     Context.getAlertService().saveAlert(alert);
 
                 } catch (Exception e) {
